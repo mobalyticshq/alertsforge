@@ -1,0 +1,589 @@
+predefined_runbooks: # predefined_runbooks tree is not necessary for configuration and can be absent, but it's better to write some common runbooks here and make yaml anchors for better readability
+  PodLabels: &PodLabels
+    description: "add labels from k8s pod"
+    enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_podlabels_"
+      sourceLabelsPrefix: "label_"
+      promql: 'last_over_time(kube_pod_labels{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",pod="{{ .Labels.pod }}"}[2h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+  Break: &Break
+    description: "breaks enrichment cycle"
+    enricherName: "break"
+
+enrichment_flow: #start runbooks for matching labels in priority order
+### start of block getting title for alert, this title will be used for grouping in grafana oncall
+- labelsSelector:
+    alertsforge_title: '' # empty selector will match with empty value and absent label
+    namespace: '^dev-.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: "alertsforge_title"
+      value: 'Namespace {{ .Labels.namespace }} has alerts'
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    deployment: '.+'
+  runbooks:
+  - enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_deploymentlabels_"
+      sourceLabelsPrefix: "label_"
+      promql: 'last_over_time(kube_deployment_labels{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",deployment="{{ .Labels.deployment }}"}[2h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    statefulset: '.+'
+  runbooks:
+  - enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_statefulsetlabels_"
+      sourceLabelsPrefix: "label_"
+      promql: 'last_over_time(kube_statefulset_labels{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",statefulset="{{ .Labels.statefulset }}"}[2h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    horizontalpodautoscaler: '.+'
+  runbooks:
+  - enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_hpalabels_"
+      sourceLabelsPrefix: "label_"
+      promql: 'last_over_time(kube_horizontalpodautoscaler_labels{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",horizontalpodautoscaler="{{ .Labels.horizontalpodautoscaler }}"}[2h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    daemonset: '.+'
+  runbooks:
+  - enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_daemonsetlabels_"
+      sourceLabelsPrefix: "label_"
+      promql: 'last_over_time(kube_daemonset_labels{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",daemonset="{{ .Labels.daemonset }}"}[2h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+- labelsSelector:
+    alertsforge_title: '' # empty selector will match with empty value and absent label
+    cluster: '.+' # this block of selectors will trigger only when there is no alertsforge_title or its empty
+    namespace: '.+' # and there are cluster,namespace,pod labels with some values
+    pod: '.+'
+  runbooks:
+  - *PodLabels
+- labelsSelector:
+    alertsforge_service: ''
+    alertsforge_podlabels_app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.alertsforge_podlabels_app }}"
+- labelsSelector:
+    alertsforge_service: ''
+    alertsforge_deploymentlabels_app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.alertsforge_deploymentlabels_app }}"
+- labelsSelector:
+    alertsforge_service: ''
+    alertsforge_statefulsetlabels_app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.alertsforge_statefulsetlabels_app }}"
+- labelsSelector:
+    alertsforge_service: ''
+    alertsforge_hpalabels_app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.alertsforge_hpalabels_app }}"
+- labelsSelector:
+    alertsforge_service: ''
+    alertsforge_daemonsetlabels_app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.alertsforge_daemonsetlabels_app }}"
+- labelsSelector:
+    destination_app: '.+' #this label usually exists for alerts made from istio metrics
+    destination_workload_namespace: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.destination_app }}"
+  - enricherName: "static"
+    config:
+      targetLabel: namespace
+      value: "{{ .Labels.destination_workload_namespace }}"
+- labelsSelector:
+    app: '.+' #this label usually exists for alerts made from log metrics
+    alertsforge_service: ''
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.app }}"
+- labelsSelector:
+    app: '.+' #this label usually exists for alerts made from istio metrics
+    alertsforge_service: ''
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_service
+      value: "{{ .Labels.app }}"
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    alertsforge_service: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "Service {{ .Labels.cluster }}/{{ .Labels.namespace }}/{{ .Labels.alertsforge_service }} has alerts"
+- labelsSelector:
+    alertsforge_title: ''
+    alertsforge_service: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "Service {{ .Labels.alertsforge_service }} has alerts"
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    daemonset: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "Service {{ .Labels.cluster }}/{{ .Labels.namespace }}/{{ .Labels.daemonset }} has alerts"
+- labelsSelector:
+    alertsforge_title: ''
+    cluster: '.+'
+    namespace: '.+'
+    statefulset: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "Service {{ .Labels.cluster }}/{{ .Labels.namespace }}/{{ .Labels.statefulset }} has alerts"
+- labelsSelector:
+    alertsforge_title: ''
+    k8s_cluster_name: '.+'
+    k8s_namespace_name: '.+'
+    app: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "Service {{ .Labels.k8s_cluster_name }}/{{ .Labels.k8s_namespace_name }}/{{ .Labels.app }} has alerts"
+- labelsSelector:
+    alertsforge_title: ''
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "{{ .Annotations.summary }}"
+- labelsSelector:
+    alertsforge_title: ''
+    alertname: '.+'
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "{{ .Labels.alertname }}"
+- labelsSelector:
+    alertsforge_title: ''
+  runbooks:
+  - enricherName: "static"
+    config:
+      targetLabel: alertsforge_title
+      value: "unknown"
+### end of block enriching alert with proper title
+
+- labelsSelector:
+    alertname: '(KubePodNotReady|KubeContainerWaiting|container-oom.*)'
+    alertsforge_pod_node: ''
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+  runbooks:
+  - enricherName: "prometheus"
+    config:
+      targetLabelsPrefix: "alertsforge_pod_node"
+      sourceLabelsPrefix: "node"
+      promql: 'last_over_time(kube_pod_info{cluster="{{ .Labels.cluster }}", namespace="{{ .Labels.namespace }}",pod="{{ .Labels.pod }}"}[1h])'
+      prometheusUrl: http://vmselect-hot:8481/select/0/prometheus/api/v1/query
+
+- labelsSelector:
+    alertsforge_pod_node: '.+'
+    cluster: '.+'
+  runbooks:
+  - enricherName: "grafana"
+    config:
+      url: https://grafana/render/d-solo/5809c027b59d66f45e9a829c57fff819/k8s-compute-resources-node-pods
+      param_var-datasource: 'default'
+      param_var-cluster: '{{.Labels.cluster}}'
+      param_var-node: '{{.Labels.alertsforge_pod_node}}'
+      param_from: 'now-6h'
+      param_panelId: '3'
+      param_width: '1000'
+      param_height: '500'
+      targetLabel: alertsforge_grafana_node_memory
+      bucket: 'alertsforge-static'
+  - enricherName: "static"
+    config:
+      value: https://grafana/d/5809c027b59d66f45e9a829c57fff819/k8s-compute-resources-node-pods?var-datasource=default&var-cluster={{.Labels.cluster}}&var-node={{.Labels.alertsforge_pod_node}}&from=now-6h&viewPanel=3
+      targetLabel: alertsforge_grafana_node_memory_dashboard_url
+
+# enrich various alerts with description of node
+- labelsSelector:
+    cluster: '.+'
+    alertsforge_pod_node: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: 'KUBECONFIG=/kubeconfigs/{{.Labels.cluster}} kubectl describe node {{.Labels.alertsforge_pod_node}}'
+      targetLabelsPrefix: alertsforge_node_describe
+      bucket: 'alertsforge-static'
+
+
+# enrich alert with slack mentions from yaml file with any structure
+- labelsSelector:
+    alertsforge_service: '.+'
+  runbooks:
+  - enricherName: "yaml"
+    config:
+      fileName: ./config/structure.yaml
+      targetLabel: alertsforge_slack_mention
+      value: '{{dig "services" .Labels.alertsforge_service "slack_mentions" "" .Variables}}'
+
+# enrich alert with grafana rendered memory graph
+- labelsSelector:
+    alertname: 'container-oom.*'
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+  runbooks:
+  - enricherName: "grafana"
+    config:
+      url: https://grafana/render/d-solo/1b1cc953002943570676e2f8bbdb6e3e/k8s-compute-resources-pod
+      param_var-datasource: 'default'
+      param_var-cluster: '{{.Labels.cluster}}'
+      param_var-namespace: '{{.Labels.namespace}}'
+      param_var-pod: '{{.Labels.pod}}'
+      param_from: 'now-6h'
+      param_panelId: '4'
+      param_width: '1000'
+      param_height: '500'
+      targetLabel: alertsforge_grafana_pod_memory
+      bucket: 'alertsforge-static'
+  - enricherName: "static"
+    config:
+      value: https://grafana/d/1b1cc953002943570676e2f8bbdb6e3e/k8s-compute-resources-pod?var-datasource=default&var-cluster={{.Labels.cluster}}&var-namespace={{.Labels.namespace}}&var-pod={{.Labels.pod}}&from=now-6h&panelId=4&viewPanel=1
+      targetLabel: alertsforge_grafana_pod_memory_dashboard_url
+
+# enrich all alerts with grafana rendered cpu graph
+- labelsSelector:
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+    disable: '.+' #temporary disable this enrichment
+  runbooks:
+  - enricherName: "grafana"
+    config:
+      url: https://grafana/render/d-solo/1b1cc953002943570676e2f8bbdb6e3e/k8s-compute-resources-pod
+      param_var-datasource: 'default'
+      param_var-cluster: '{{.Labels.cluster}}'
+      param_var-namespace: '{{.Labels.namespace}}'
+      param_var-pod: '{{.Labels.pod}}'
+      param_from: 'now-6h'
+      param_panelId: '1'
+      param_width: '1000'
+      param_height: '500'
+      targetLabel: alertsforge_grafana_pod_cpu
+      bucket: 'alertsforge-static'
+  - enricherName: "static"
+    config:
+      value: https://grafana/d/1b1cc953002943570676e2f8bbdb6e3e/k8s-compute-resources-pod?var-datasource=default&var-cluster={{.Labels.cluster}}&var-namespace={{.Labels.namespace}}&var-pod={{.Labels.pod}}&from=now-6h&panelId=1&viewPanel=1
+      targetLabel: alertsforge_grafana_pod_cpu_dashboard_url
+
+# enrich ratelimit alert with rps graph
+- labelsSelector:
+    cluster: '.+'
+    namespace: '.+'
+    destination_app: '.+'
+  runbooks:
+  - enricherName: "grafana"
+    config:
+      url: https://grafana/render/d-solo/kE21qNBik/microservice
+      param_var-datasource: 'VM'
+      param_var-cluster: '{{.Labels.cluster}}'
+      param_var-env: '{{.Labels.namespace}}'
+      param_var-app: '{{.Labels.alertsforge_service}}'
+      param_from: 'now-1h'
+      param_panelId: '180'
+      param_width: '1000'
+      param_height: '500'
+      targetLabel: alertsforge_grafana_rps
+      bucket: 'alertsforge-static'
+  - enricherName: "static"
+    config:
+      value: https://grafana/d/kE21qNBik/microservice?var-datasource=VM&var-cluster={{.Labels.cluster}}&var-env={{.Labels.namespace}}&var-app={{.Labels.alertsforge_service}}&from=now-1h&panelId=180&viewPanel=1
+      targetLabel: alertsforge_grafana_rps_dashboard_url
+# enrich container restart with tail of logs of previous run of the container
+- labelsSelector:
+    alertname: '(container-restart|KubePodNotReady|KubePodCrashLooping|container-oom.*)'
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+    container: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: 'KUBECONFIG=/kubeconfigs/{{.Labels.cluster}} kubectl logs -p --tail 200 -n {{.Labels.namespace}} -c {{.Labels.container}} {{.Labels.pod}}'
+      targetLabelsPrefix: alertsforge_previous_pod_logs
+      bucket: 'alertsforge-static'
+
+# enrich container restart with tail of logs of previous run of the main container if restarting container is istio sidecar
+- labelsSelector:
+    alertname: '(container-restart|KubePodNotReady|KubePodCrashLooping)'
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+    container: 'istio-proxy'
+    alertsforge_service: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: 'KUBECONFIG=/kubeconfigs/{{.Labels.cluster}} kubectl logs -p --tail 200 -n {{.Labels.namespace}} -c {{.Labels.alertsforge_service}} {{.Labels.pod}}'
+      targetLabelsPrefix: alertsforge_previous_pod_logs
+      bucket: 'alertsforge-static'
+
+# enrich various alerts with description of pod
+- labelsSelector:
+    alertname: '(container-restart|KubePodNotReady|KubeContainerWaiting|KubePodCrashLooping|container-oom.*)'
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: 'KUBECONFIG=/kubeconfigs/{{.Labels.cluster}} kubectl describe pod -n {{.Labels.namespace}} {{.Labels.pod}}'
+      targetLabelsPrefix: alertsforge_pod_describe
+      bucket: 'alertsforge-static'
+
+# enrich various alerts with escalation chain
+- labelsSelector:
+    alertname: 'KubePersistentVolumeFillingUp'
+  runbooks:
+  - enricherName: "static"
+    config:
+      value: devops_warning
+      targetLabel: alertsforge_escalation_chain
+
+- labelsSelector:
+    namespace: 'dev-lol-ip'
+  runbooks:
+  - enricherName: "static"
+    config:
+      value: dev_test
+      targetLabel: alertsforge_escalation_chain
+
+# enrich various alerts with escalation chain
+- labelsSelector:
+    alertname: 'KubePersistentVolumeFillingUp'
+    persistentvolumeclaim: 'postgres-13-ansible-postgres.*'
+  runbooks:
+  - enricherName: "static"
+    config:
+      value: devops_sre_warning
+      targetLabel: alertsforge_escalation_chain
+
+- labelsSelector:
+    alertsforge_last_commiter_stdout: ''
+    alertsforge_last_commit_time_stdout: ''
+    alertsforge_service: '.+'
+    namespace: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: "curl -s --location 'https://code/api/v4/projects/558/repository/commits?path=namespaces%2F{{.Labels.namespace}}%2F{{.Labels.alertsforge_service}}.yaml' --header \"PRIVATE-TOKEN: $AF_GITLAB_TOKEN\" | jq -cr '.[0].author_email // empty' | tr -d '\n'"
+      targetLabelsPrefix: alertsforge_last_commiter
+  - enricherName: "command"
+    config:
+      command: "curl -s --location 'https://code/api/v4/projects/558/repository/commits?path=namespaces%2F{{.Labels.namespace}}%2F{{.Labels.alertsforge_service}}.yaml' --header \"PRIVATE-TOKEN: $AF_GITLAB_TOKEN\" | jq -cr '.[0].created_at // empty' | tr -d '\n'"
+      targetLabelsPrefix: alertsforge_last_commit_time
+  - enricherName: "command"
+    config:
+      command: "curl -s --location 'https://code/api/v4/projects/558/repository/commits?path=namespaces%2F{{.Labels.namespace}}%2F{{.Labels.alertsforge_service}}.yaml' --header \"PRIVATE-TOKEN: $AF_GITLAB_TOKEN\" | jq -cr '.[0].message // empty' | tr -d '\n'"
+      targetLabelsPrefix: alertsforge_last_commit_message
+
+
+# test runbook
+- labelsSelector:
+    alertname: 'container-restart'
+    test: 'test'
+    cluster: '.+'
+    namespace: '.+'
+    pod: '.+'
+    container: '.+'
+  runbooks:
+  - enricherName: "command"
+    config:
+      command: 'kubectl logs -p --tail 200 -n {{.Labels.namespace}} -c {{.Labels.container}} {{.Labels.pod}}m'
+      targetLabelsPrefix: alertsforge_command_output
+      bucket: 'alertsforge-static'
+
+oncall_message:
+  title: "{{ .Labels.alertsforge_title }}"
+  web_message: |
+    {{- $last_commits := list }}
+    {{- range .FiringAlerts }}
+    {{ .StartsAt }}
+    {{ .Annotations.description }}
+    {{- if index .Labels "alertsforge_grafana_pod_memory" }}
+    <a href={{- .Labels.alertsforge_grafana_pod_memory_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_memory }} alt="pod memory"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_node_memory" }}
+    <a href={{- .Labels.alertsforge_grafana_node_memory_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_node_memory }} alt="node memory"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_pod_cpu" }}
+    <a href={{- .Labels.alertsforge_grafana_pod_cpu_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_cpu }} alt="cpu"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_rps" }}
+    <a href={{- .Labels.alertsforge_grafana_rps_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_rps }} alt="rps"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_previous_pod_logs_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_previous_pod_logs_stdout }} target="_blank">logs</a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_pod_describe_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_pod_describe_stdout }} target="_blank">pod describe</a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_node_describe_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_node_describe_stdout }} target="_blank">node describe</a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_last_commiter_stdout" }}{{ $last_commits = append $last_commits (printf "%s %s '%s'" .Labels.alertsforge_last_commit_time_stdout .Labels.alertsforge_last_commiter_stdout .Labels.alertsforge_last_commit_message_stdout) }}{{- end }}
+    {{- end }}
+    {{- if gt (len $last_commits) 0 }}
+    last commit: {{range ($last_commits | uniq) }}{{.}} {{ end }}
+    {{- end }}
+    {{- if .ResolvedAlerts }}
+    ------------------------------------------------------
+    Resolved:
+    {{range .ResolvedAlerts }}{{.Annotations.description}}
+    {{- if index .Labels "alertsforge_grafana_pod_memory" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_grafana_pod_memory_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_memory }} alt="memory"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_pod_cpu" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_grafana_pod_cpu_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_cpu }} alt="cpu"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_rps" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_grafana_rps_dashboard_url }} target="_blank"><img style="max-width: 100%; max-height: 100%" src=https://alertsforge-static/{{ .Labels.alertsforge_grafana_rps }} alt="rps"></a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_previous_pod_logs_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_previous_pod_logs_stdout }} target="_blank">logs</a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_pod_describe_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_pod_describe_stdout }} target="_blank">pod describe</a>
+    {{- end }}
+    {{- if index .Labels "alertsforge_node_describe_stdout" }}
+    <a href=https://alertsforge-static/{{- .Labels.alertsforge_node_describe_stdout }} target="_blank">node describe</a>
+    {{- end }}
+    {{- end }}
+    {{- end }}
+  slack_message: |
+    {{- $last_commits := list }}
+    {{- range .FiringAlerts }}
+    {{ .Annotations.description }}
+    {{- if index .Labels "alertsforge_slack_mention" }}
+    {{ .Labels.alertsforge_slack_mention }}
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_pod_memory" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_memory }}|pod memory> <{{ .Labels.alertsforge_grafana_pod_memory_dashboard_url }}|pod memory dashboard>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_node_memory" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_grafana_node_memory }}|node memory> <{{ .Labels.alertsforge_grafana_node_memory_dashboard_url }}|node memory dashboard>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_pod_cpu" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_grafana_pod_cpu }}|cpu> <{{ .Labels.alertsforge_grafana_pod_cpu_dashboard_url }}|cpu dashboard>
+    {{- end }}
+    {{- if index .Labels "alertsforge_grafana_rps" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_grafana_rps }}|rps>
+    {{- end }}
+    {{- if index .Labels "alertsforge_previous_pod_logs_stdout" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_previous_pod_logs_stdout }}|logs>
+    {{- end }}
+    {{- if index .Labels "alertsforge_pod_describe_stdout" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_pod_describe_stdout }}|pod describe>
+    {{- end }}
+    {{- if index .Labels "alertsforge_node_describe_stdout" }}
+    <https://alertsforge-static/{{ .Labels.alertsforge_node_describe_stdout }}|node describe>
+    {{- end }}
+    {{- if index .Labels "alertsforge_last_commiter_stdout" }}{{ $last_commits = append $last_commits (printf "%s %s '%s'" .Labels.alertsforge_last_commit_time_stdout .Labels.alertsforge_last_commiter_stdout .Labels.alertsforge_last_commit_message_stdout) }}{{- end }}
+    ***
+    {{- end }}
+    {{- if gt (len $last_commits) 0 }}
+    last commit: {{range ($last_commits | uniq) }}{{.}} {{ end }}
+    {{- end }}
+    {{- if .ResolvedAlerts }}
+    ------------------------------------------------------
+    Resolved:
+    {{- range .ResolvedAlerts }}
+    {{ .Annotations.description}}
+    {{- end }}
+    {{- end }}
+  telegram_message: |
+    {{- range .FiringAlerts }}
+    {{ .Annotations.description}}
+    {{- end }}
+    {{- if .ResolvedAlerts }}
+    Resolved:
+    {{- range .ResolvedAlerts }}
+    {{ .Annotations.description }}
+    {{- end }}
+    {{- end }}
+  simple_message: |
+    {{- range .FiringAlerts }}
+    {{ .Annotations.description}}
+    {{- end }}
+  escalation_chain: |
+    {{- $last_escalation_chain := "" -}}
+    {{- range .FiringAlerts -}}
+    {{- if index .Labels "alertsforge_escalation_chain" }}{{- $last_escalation_chain = .Labels.alertsforge_escalation_chain -}}{{- end -}}
+    {{- end -}}
+    {{- printf "%s" $last_escalation_chain -}}
+
+
+silenced_alerts:
+- explanation: "it's ok for airflow cluster"
+  labelsSelector:
+    alertname: 'CPUThrottlingHigh'
+    container: 'dag-processor'
+    cluster: 'airflow-b3a'
+- explanation: "it's ok for event-base namespace"
+  labelsSelector:
+    namespace: "(event-base|dev-streaming|prod-streaming)"
+    alertname: "(KubeHpaMaxedOut|CPUThrottlingHigh)"
+- explanation: "skip heartbeats"
+  labelsSelector:
+    alertname: "heartbeat"
+- explanation: "different versions is fine for stateful cluster"
+  labelsSelector:
+    alertname: "KubeVersionMismatch"
+    cluster: "stateful-7ue"

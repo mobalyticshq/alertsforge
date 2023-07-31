@@ -1,0 +1,82 @@
+# This file contains all available configuration options
+# with their default values.
+
+# options for analysis running
+run:
+  # Define the Go version limit.
+  # Mainly related to generics support in go1.18.
+  # Default: use Go version from the go.mod file, fallback on the env var `GOVERSION`, fallback on 1.17
+  go: "1.20"
+  # by default isn't set. If set we pass it to "go list -mod={option}". From "go help modules":
+  # If invoked with -mod=readonly, the go command is disallowed from the implicit
+  # automatic updating of go.mod described above. Instead, it fails when any changes
+  # to go.mod are needed. This setting is most useful to check that go.mod does
+  # not need updates, such as in a continuous integration and testing system.
+  # If invoked with -mod=vendor, the go command assumes that the vendor
+  # directory holds the correct copies of dependencies and ignores
+  # the dependency descriptions in go.mod.
+  modules-download-mode: readonly
+
+  # default concurrency is a available CPU number
+  # concurrency: 8
+
+  # timeout for analysis, e.g. 30s, 5m, default is 1m
+  deadline: 10m
+
+  # include test files or not, default is true
+  tests: true
+
+  # skip-dirs:
+
+  # skip-files:
+
+
+linters:
+  ## list https://golangci-lint.run/usage/linters/
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - asciicheck
+    - bodyclose
+    - dogsled
+    - dupl
+    - durationcheck
+    - exportloopref
+    - forbidigo
+    - forcetypeassert
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - godot
+    - godox
+    - goheader
+    - goimports
+    - goprintffuncname
+    - gosec
+    - importas
+    - lll
+    - makezero
+    - misspell
+    - nilerr
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+  disable-all: false
+  fast: false
+
+linters-settings:
+  lll:
+    line-length: 160
+
+max-issues-per-linter: 0
+max-same-issues: 0

@@ -1,0 +1,4 @@
+__debug_bin
+.vscode/launch.json
+coverage.txt
+cobertura.xml

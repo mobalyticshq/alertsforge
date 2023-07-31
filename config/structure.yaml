@@ -1,0 +1,14 @@
+namespaces:
+  prod:
+    owners:
+      - '@prod-team'
+  stg:
+    owners:
+      - '@stg-team'
+services:
+  app1:
+    owners:
+      - '@team1'
+  app2:
+    owners:
+      - '@team2'
